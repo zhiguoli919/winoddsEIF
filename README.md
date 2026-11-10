@@ -4,8 +4,6 @@
 
 `winoddsEIF` is a research R package accompanying the manuscript *Semiparametric Inference for Marginal Win Odds with Censored Time-to-Event Outcomes*. It implements cross-fitted one-step estimators for (i) scalar right-censored survival outcomes and (ii) prioritized semi-competing-risk outcomes. It also provides the original simulation programs, numerical comparison tests, and the separate penalized-spline analysis of a breast cancer trial.
 
-**Development status:** Version `0.1.0` (version number held fixed during development). The package has been installed and tested on Windows using R 4.5.2. Its two exported estimators reproduced results from the corresponding original simulation implementations in two test scenarios each, and the packaged tamoxifen penalized-spline analysis reproduced the earlier 5-year results. `R CMD check --no-manual` completed with **Status: OK**, including the automated numerical regression tests. Full Monte Carlo reproduction and `R CMD check --as-cran` have not yet been completed.
-
 ## Installation
 
 From a terminal in the parent directory of the package source folder:
@@ -20,8 +18,6 @@ Alternatively, install the source archive from R (using the archive's actual pat
 install.packages("winoddsEIF_0.1.0.tar.gz", repos = NULL, type = "source")
 library(winoddsEIF)
 ```
-
-The GitHub repository is private during development. The package is not currently distributed through CRAN.
 
 ## Scalar right-censored survival outcomes
 
@@ -160,8 +156,6 @@ R CMD build winoddsEIF
 R CMD check --no-manual winoddsEIF_0.1.0.tar.gz
 ```
 
-The latest completed check returned **Status: OK**, including `regression.R` and `smoke.R`. This verifies the package's behavior in the tested settings; it does not independently establish the statistical theory or reproduce every result from the full Monte Carlo studies.
-
 ## Scope and limitations
 
 - The two exported estimators support **one numeric baseline covariate**, binary treatment, and a **known constant randomization probability**. This is a narrower interface than the manuscript's general semiparametric framework.
@@ -171,10 +165,6 @@ The latest completed check returned **Status: OK**, including `regression.R` and
 - The exported estimator functions do not implement a bootstrap. The `collett` data are not redistributed with this package.
 - Archived simulation scripts are retained for reproducibility; diagnostic variants in those scripts are not additional publicly exported estimators.
 
-## Before public release
+Reference:
 
-The initial Windows installation, numerical comparisons, tamoxifen spline reproduction, and `R CMD check --no-manual` are complete. Remaining release tasks include reproducing the full simulation tables as needed, running `R CMD check --as-cran`, checking the license and documentation, and recording the software environment. A release tag and archival DOI can be added when a public release is ready.
-
-## Implementation provenance
-
-The numerical implementations were adapted from the author's original scalar and semi-competing-risk simulation programs. Comparisons with those programs test fidelity of the package adaptation; they are not independent theoretical validation.
+Li, Z. Semiparametric Inference for Marginal Win Odds with Censored Time-to-Event Outcomes. Manuscript under review.
