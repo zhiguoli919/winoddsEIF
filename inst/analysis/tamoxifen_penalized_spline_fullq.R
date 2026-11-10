@@ -1,40 +1,17 @@
-# *** This script is a standalone spline analysis using the verified tamoxifen data-preparation and win-score functions. ***
-# *** Unlike the baseline script, it does NOT execute the exponential analysis. ***
-
-# ===========================================================================
-# TAMOXIFEN BREAST CANCER TRIAL: SEMI-COMPETING RISKS WIN PROBABILITY
-# ===========================================================================
-# COMPLETE STANDALONE SPLINE ANALYSIS. Requires CRAN package 'collett'.
-# Randomized comparison: A=1 tamoxifen + radiotherapy, A=0 tamoxifen alone.
-# Higher priority: death; lower priority: earliest LOCAL, AXILLARY, or DISTANT
-# relapse observed strictly before death (death-first for same-day ties).
-# Main analysis: 5 years; additional analysis: 4 years.
-# Five-fold cross-fitting, full estimated q_a censoring augmentation.
-# Uses direct one-step EIF SE and a score-corrected IPCW SE, without bootstrap.
+# Tamoxifen trial: penalized-spline one-step analysis 
+# ---------------------------------------------------------------------
+# Treatment A=1: tamoxifen plus radiotherapy; A=0: tamoxifen alone.
+# Primary endpoint: death; secondary endpoint: first local, axillary, or
+# distant relapse before death (death-first ordering for same-day ties).
 #
-# Baseline regressors (chosen for parsimony, given ~48 total deaths):
-#    age10=(age-60)/10, log_size=log(1+tumor_size_cm), hr=HR positive (0/1).
-# Histology and hemoglobin are available for later sensitivity analyses but
-# are excluded from the primary nuisance specification.
-#
-# Nuisance hazards: arm-specific terminal and relapse models and pooled
-# censoring model, each with a penalized cubic B-spline baseline log-hazard.
-# Calendar time is discretized into fixed cells for exposure integration.
-# Death and censoring also include N2(t-). All models fit on training folds.
-# The spline extension below supersedes original exponential functions.
-# No inverse-weight truncation: low fitted G causes an explicit error.
-#
-# IMPORTANT STATISTICAL CAVEATS:
-#  - The IPCW SE uses a first-order parametric censoring score correction;
-#    it is not guaranteed valid under misspecified censoring hazards.
-#  - Valid one-step EIF-based inference requires appropriate nuisance-rate
-#    conditions. Constant baseline hazard models are working models, not a
-#    validation of those assumptions. Check model sensitivity before publication.
-#  - The returned RE is a ratio of SQUARED ESTIMATED SEs in this ONE dataset,
-#    not an empirical-variance ratio from simulation replicates.
-#  - No R interpreter is available in the authoring environment. Run
-#    tamoxifen_sanity() and numerical checks in R before using estimates.
-# ===========================================================================
+# Nuisance models: arm-specific event hazards and pooled censoring hazard;
+# penalized cubic B-spline log-baselines on a fixed time grid. The fitted
+# hazards are piecewise constant within grid cells. Five-fold cross-fitting
+# uses age10, log_size, and hormone-receptor status; full q augmentation.
+# One-step SE is influence-function based; IPCW SE uses a first-order
+# censoring-score correction. No bootstrap and no inverse-weight truncation.
+# Estimated relative efficiency compares squared estimated SEs in this data.
+#-----------------------------------------------------------------------
 
 RUN_HORIZONS <- c(4, 5)
 N_FOLDS <- 5L
@@ -101,8 +78,6 @@ prepare_tamoxifen <- function() {
   if (any(d$tr<=0 | d$td<=0)) stop("Zero or negative observed time")
   if (any(!dd %in% 0:1)) stop("Unexpected death status")
 
-  # Predeclared transformations; no data-derived score or imputation is
-  # learned using the held-out fold. These are fixed mappings.
   d$age10 <- (d$age-60)/10
   d$log_size <- log1p(d$size)
   if (any(!is.finite(as.matrix(d[,BASE_NAMES,drop=FALSE]))))
@@ -143,10 +118,6 @@ restrict_tamoxifen <- function(d,years) {
       100*mean(out$Delta2)))
   out
 }
-
-# ------------------------------ Ridge hazards -------------------------------
-# The fitting and prediction interface uses a constant set of named numeric
-# predictors. It does not construct any scores from the validation outcomes.
 
 make_ridge_fit <- function(exposure,event,Z,kappa=RIDGE_KAPPA) {
   exposure <- as.numeric(exposure)
@@ -402,6 +373,7 @@ semi_q <- function(a,u,x,t2obs,fit,proj,mu,tau,M_q=M_Q) {
   mean(h)-mu
 }
 
+# Nodes and weights for 8-point Gauss-Legendre quadrature.
 GLX <- c(-.9602898564975363,-.7966664774136267,
          -.5255324099163290,-.1834346424956498,
           .1834346424956498,.5255324099163290,
@@ -436,7 +408,7 @@ semi_augment <- function(a,x,stop,cens,t2obs,fit,proj,mu,tau,
   as.numeric(jump-drift)
 }
 
-# ------------------- IPCW direct SE: pooled censoring -----------------------
+# --------------- Shared IPCW score correction -----------------------------
 
 semi_censor_score_info <- function(d,fitC) {
   if(isTRUE(fitC$fallback))
@@ -606,42 +578,6 @@ format_estimate <- function(method,psi,se,tau,ratio=NA_real_) {
     estimated_RE=ratio)
 }
 
-run_tamoxifen_analysis <- function() {
-  raw <- prepare_tamoxifen()
-  output <- list()
-  for(tau in RUN_HORIZONS) {
-    cat("\n",paste(rep("=",65),collapse=""),"\n",sep="")
-    d <- restrict_tamoxifen(raw,tau)
-    # Same fold assignment at both horizons (patient order unchanged).
-    ans <- semi_one_step(d,V=N_FOLDS,seed=FOLD_SEED,M_q=M_Q)
-    re <- ans$se_ipcw^2/ans$se_full^2
-    tab <- rbind(
-      format_estimate("IPCW",ans$psi_ipcw,ans$se_ipcw,tau,ratio=1),
-      format_estimate("One-step (full q)",ans$psi_full,ans$se_full,tau,ratio=re))
-    cat("\nResults (RE is ratio of squared ESTIMATED SEs):\n")
-    print(tab,digits=5,row.names=FALSE)
-    cat("\nEstimated censoring survival summary:\n")
-    print(ans$quantiles_G,digits=5)
-    cat("Largest absolute one-step IF contributions:\n")
-    print(ans$largest_IF,digits=5,row.names=FALSE)
-    cat("Censoring fallback in any fold:",ans$censoring_fallback,"\n")
-    suffix <- gsub("\\.","p",sprintf("%.1f",tau))
-    write.csv(tab,paste0(OUTPUT_PREFIX,"_",suffix,"y_estimates.csv"),
-              row.names=FALSE)
-    write.csv(ans$largest_IF,
-              paste0(OUTPUT_PREFIX,"_",suffix,"y_largest_IF.csv"),
-              row.names=FALSE)
-    output[[suffix]] <- list(table=tab,detail=ans)
-  }
-  all_tables <- do.call(rbind,lapply(output,`[[`,"table"))
-  rownames(all_tables) <- NULL
-  write.csv(all_tables,paste0(OUTPUT_PREFIX,"_all_results.csv"),
-            row.names=FALSE)
-  saveRDS(output,paste0(OUTPUT_PREFIX,"_full_output.rds"))
-  cat("\nAll outputs saved.\n")
-  invisible(output)
-}
-
 # ------------------------ Lightweight deterministic checks ------------------
 tamoxifen_sanity <- function() {
   h <- function(p1,s1,p0,s0,tol=1e-10) {
@@ -666,7 +602,6 @@ tamoxifen_sanity <- function() {
               all(is.na(z$Yp[z$R==0])),
               all(z$T2tilde<=z$obs_time))
   }
-  # Independent cross-check against the previously verified 4- and 5-year
   # counts from this version of the public dataset; stop if changed.
   z4 <- restrict_tamoxifen(raw,4)
   z5 <- restrict_tamoxifen(raw,5)
@@ -679,18 +614,16 @@ tamoxifen_sanity <- function() {
 
 
 # ===========================================================================
-# PENALIZED CUBIC B-SPLINE BASELINE LOG-HAZARDS: STANDALONE EXTENSION
+# PENALIZED CUBIC B-SPLINE BASELINE LOG-HAZARDS
 # ===========================================================================
 # Time divided into fixed equal-width cells. Within a cell the hazard is
 # constant; the log hazards at cell midpoints follow a cubic B-spline, with
 # a second-difference roughness penalty. Thus the fitted hazard is an
 # approximation to a smooth spline hazard, not a continuous-time exact
 # spline likelihood. Cell widths can be decreased in a sensitivity analysis.
-# The cubic basis is FIXED (not learned from held-out event times).
 # Event models are arm-specific; the censoring model is pooled, includes A.
 # A single smooth time effect is shared across recurrence states; N2 changes
 # the death and censoring hazards multiplicatively after relapse.
-# Baseline age10, log_size, and hr effects remain linear for parsimony.
 # ===========================================================================
 
 SPLINE_BINS <- 16L
@@ -699,7 +632,6 @@ SPLINE_LAMBDA <- 8.0                  # penalty on second differences
 SPLINE_RIDGE <- 0.20                 # small basis-coefficient stabilization
 OUTPUT_PREFIX <- "tamoxifen_penalized_spline_fullq"
 
-# The current horizon is set by the wrapper before entering semi_one_step().
 .TAM_SPLINE_GRID <- NULL
 
 tam_spline_grid <- function(tau) {
@@ -1103,5 +1035,5 @@ run_tamoxifen_spline_analysis <- function(horizons=RUN_HORIZONS,
   invisible(list(table=all,results=output))
 }
 
-# Run complete spline analysis for both clinical horizons.
+# Run the configured spline analyses.
 spline_results <- run_tamoxifen_spline_analysis()

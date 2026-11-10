@@ -1,37 +1,13 @@
-# ===========================================================================
-# TAMOXIFEN BREAST CANCER TRIAL: SEMI-COMPETING RISKS WIN PROBABILITY
-# ===========================================================================
-# COMPLETE STANDALONE R SCRIPT. Requires CRAN package 'collett'.
-# Randomized comparison: A=1 tamoxifen + radiotherapy, A=0 tamoxifen alone.
-# Higher priority: death; lower priority: earliest LOCAL, AXILLARY, or DISTANT
-# relapse observed strictly before death (death-first for same-day ties).
-# Primary horizon: 4 years; sensitivity horizon: 5 years.
-# Five-fold cross-fitting, full estimated q_a censoring augmentation.
-# Uses direct one-step EIF SE and a score-corrected IPCW SE, without bootstrap.
-#
-# Baseline regressors (chosen for parsimony, given ~48 total deaths):
-#    age10=(age-60)/10, log_size=log(1+tumor_size_cm), hr=HR positive (0/1).
-# Histology and hemoglobin are available for later sensitivity analyses but
-# are excluded from the primary nuisance specification.
-#
-# Working hazards: constant between recurrence state changes; death hazard
-# may change after first relapse. Arm-specific death and relapse models;
-# pooled censoring model includes A, baseline regressors, and N2(t-).
-# Ridge penalty kappa=2 applied to unnormalized log likelihood, excluding
-# the intercept. All event and censoring models are fit on training folds.
-# No inverse-weight truncation: low fitted G causes an explicit error.
-#
-# IMPORTANT STATISTICAL CAVEATS:
-#  - The IPCW SE uses a first-order parametric censoring score correction;
-#    it is not guaranteed valid under misspecified censoring hazards.
-#  - Valid one-step EIF-based inference requires appropriate nuisance-rate
-#    conditions. Constant baseline hazard models are working models, not a
-#    validation of those assumptions. Check model sensitivity before publication.
-#  - The returned RE is a ratio of SQUARED ESTIMATED SEs in this ONE dataset,
-#    not an empirical-variance ratio from simulation replicates.
-#  - No R interpreter is available in the authoring environment. Run
-#    tamoxifen_sanity() and numerical checks in R before using estimates.
-# ===========================================================================
+# Tamoxifen trial: exponential working-hazard analysis (sensitivity)
+# -------------------------------------------------------------------
+# Treatment A=1: tamoxifen plus radiotherapy; A=0: tamoxifen alone. Primary endpoint: death; secondary endpoint: first local, axillary, or
+# distant relapse strictly before death; same-day ties are death-first.
+## Nuisance models: exponential working hazards, with history change after relapse for death and censoring. Arm-specific event models, pooled
+# censoring model; ridge penalty kappa=2, five-fold cross-fitting, full q.
+# Covariates: age10, log_size, hormone-receptor status.
+# One-step SE is influence-function based; IPCW SE uses a first-order censoring-score correction.
+# This is a sensitivity analysis, not the manuscript's main spline model.
+# -------------------------------------------------------------------
 
 RUN_HORIZONS <- c(4, 5)
 N_FOLDS <- 5L
@@ -141,7 +117,7 @@ restrict_tamoxifen <- function(d,years) {
   out
 }
 
-# ------------------------------ Ridge hazards -------------------------------
+# ---------------------- Exponential nuisance models -----------------------
 # The fitting and prediction interface uses a constant set of named numeric
 # predictors. It does not construct any scores from the validation outcomes.
 
@@ -663,7 +639,6 @@ tamoxifen_sanity <- function() {
               all(is.na(z$Yp[z$R==0])),
               all(z$T2tilde<=z$obs_time))
   }
-  # Independent cross-check against the previously verified 4- and 5-year
   # counts from this version of the public dataset; stop if changed.
   z4 <- restrict_tamoxifen(raw,4)
   z5 <- restrict_tamoxifen(raw,5)
@@ -674,6 +649,6 @@ tamoxifen_sanity <- function() {
   invisible(TRUE)
 }
 
-# Run once: checks precede the potentially time-consuming numerical analysis.
+# Verify input data and event ordering before analysis.
 tamoxifen_sanity()
 results <- run_tamoxifen_analysis()

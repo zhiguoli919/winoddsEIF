@@ -1,34 +1,22 @@
-# ================================================================
-# SEMI-COMPETING RISKS: RIDGE-REGULARIZED FULL SIMULATION
-# Complete, standalone base-R script. No bootstrap.
-# Semi-competing risks here means terminal T1 / nonterminal T2.
-# Win score: T1 primary, T2 secondary if T1 tied at tau.
-# The hazard of T1, and potentially censoring, switches after T2.
+# Prioritized semi-competing risks: simulation and estimator comparison
+# --------------------------------------------------------------------
+# Primary outcome: terminal event T1; secondary outcome: nonterminal T2. The terminal and censoring hazards may change after the nonterminal event.
+# Estimators: cross-fitted one-step (FULL_EIF), normalized IPCW, plug-in, and an oracle-hazard benchmark. Ridge-regularized piecewise-exponential
+# nuisance models use fixed kappa=2; the intercept is unpenalized. Reference win probability is estimated by an independent Monte Carlo run;
+# the reported reference Monte Carlo SE should be considered in bias checks.
 #
-# FINAL REVISED MAIN DGP: moderate/stronger/strongest; M_q=256.
-# Defaults: n=800, B=5000 per scenario. Edit SIM_N for n=200 or 400.
-# This is the corrected Newton ridge-fitting version used after the
-# original BFGS pilot failed, with unchanged estimator functions.
-# Fixed ridge kappa=2 on the unaveraged counting-process
-# log-likelihood; intercept not penalized; X and N2 penalized.
-# Only DGP censoring coefficients change in stronger/strongest.
-# NO scenario-specific fitted hazard caps. Replications with
-# a binding numerical censoring-survival floor are flagged as failures.
-#
-# IPCW SE: direct first-order score correction for the same
-# cross-fitted, penalized piecewise-exponential censoring model.
-# This is a first-order approximation; validate actual coverage.
-#
-# Note: true marginal win probability is simulated separately;
-# its Monte Carlo SE is printed and should be considered in bias.
-# ================================================================
-SIM_N <- 800L
+# Default n=800, B=5000 per scenario, M_q=256. 
+
+# Outputs are saved to getwd(). 
+# --------------------------------------------------------------------
+
+SIM_N <- 200L
 SIM_B <- 5000L            # Monte Carlo replications PER scenario
 SIM_V <- 5L
 SIM_SEED <- 2031L
 RIDGE_KAPPA <- 2.0
 SIM_M_Q <- 256L            # Conditional-projection integration grid (16 x 16)
-SIM_M_REF <- 500000L       # For final paper, consider 5e6 to reduce truth MCSE
+SIM_M_REF <- 500000L       # Independent reference-truth sample size
 SIM_ORACLE <- TRUE
 RUN_SCENARIOS <- c("moderate","stronger","strongest")
 
@@ -36,42 +24,28 @@ rX <- function(n) qnorm(runif(n, pnorm(-2), pnorm(2)))
 
 semi_parameters <- function(scenario = "moderate") {
   if (scenario == "moderate") {
-    ## Parameters of "scenario 1 moderate.txt"
+    ## Moderate heterogeneity and censoring
     return(list(tau=5, lambda10=.10, beta1A=-.35, beta1X=1.25,
       beta1N2=1.25, lambda20=.20, beta2A=-.30, beta2X=1.25,
       piA=.5, gammaX=.80, gammaN2=1.25, target_censoring=.30))
   }
   if (scenario == "stronger") {
-    ## REVISED censoring DGP: gammaX=0.50, gammaN2=0.50.
+    ## Censoring DGP: gammaX=0.50, gammaN2=0.50
     ## Event hazards unchanged. Calibrate c0 to 40% censoring.
     ## The conservative true G lower bound is about 0.024.
     return(list(tau=5, lambda10=.10, beta1A=-.35, beta1X=1.25,
       beta1N2=1.60, lambda20=.20, beta2A=-.30, beta2X=1.25,
       piA=.5, gammaX=.50, gammaN2=0.50, target_censoring=.40))
   }
-  if (scenario == "eff136") {
-    ## Parameters of "comp eff136.txt"
-    return(list(tau=5, lambda10=.10, beta1A=-.35, beta1X=1.00,
-      beta1N2=1.25, lambda20=.20, beta2A=-.30, beta2X=1.00,
-      piA=.5, gammaX=.80, gammaN2=1.25, target_censoring=.30))
-  }
-  if (scenario %in% c("heavy", "strongest_no_history")) {
-    ## 50% censoring; terminal event history-dependent (beta1N2 = 2),
-    ## but censoring does not depend on N2(t) (gammaN2 = 0).
-    return(list(tau=5, lambda10=.10, beta1A=-.35, beta1X=1.25,
-      beta1N2=2.00, lambda20=.20, beta2A=-.30, beta2X=1.25,
-      piA=.5, gammaX=.80, gammaN2=0.00, target_censoring=.50))
-  }
   if (scenario == "strongest") {
-    ## REVISED censoring DGP: gammaX=0.40, gammaN2=0.40.
+    ## Censoring DGP: gammaX=0.40, gammaN2=0.40
     ## Event hazards unchanged. Calibrate c0 to 50% censoring.
     ## The conservative true G lower bound is about 0.015.
     return(list(tau=5, lambda10=.10, beta1A=-.35, beta1X=1.25,
       beta1N2=2.00, lambda20=.20, beta2A=-.30, beta2X=1.25,
       piA=.5, gammaX=.40, gammaN2=0.40, target_censoring=.50))
   }
-  stop("Unknown scenario. Use 'moderate', 'stronger', 'strongest',",
-       "'strongest_no_history', 'eff136', or 'heavy'.")
+  stop("Unknown scenario. Use 'moderate', 'stronger', or 'strongest'.")
 }
 
 semi_h <- function(p1,s1,p0,s0,tol=1e-10) {
@@ -603,7 +577,7 @@ semi_one_step <- function(dat,V=5,M_q=64,g_floor=1e-8,seed=123,
   if (piA<=0 || piA>=1) stop("piA must be in (0,1)")
   set.seed(seed)
   folds <- sample(rep(seq_len(V),length.out=n))
-  phi_full <- phi_q0 <- numeric(n)
+  phi_full <- numeric(n)
   psi_pl <- numeric(V); minG <- numeric(V); w_ipcw <- numeric(n)
   cfits <- vector("list",V)
   for (v in seq_len(V)) {
@@ -648,18 +622,14 @@ semi_one_step <- function(dat,V=5,M_q=64,g_floor=1e-8,seed=123,
                           fit,proj,mu_a,tau,M_q,g_floor)
       common <- mu1+mu0-2*psi_pl[v]
       w <- 1/(if(a==1L) piA else 1-piA)
-      phi_q0[i] <- common+w*ipcw
       phi_full[i] <- common+w*(ipcw+aug)
     }
   }
   psi_pl_mean <- sum(tabulate(folds,nbins=V)*psi_pl)/n
   psi_full <- psi_pl_mean+mean(phi_full)
-  psi_q0 <- psi_pl_mean+mean(phi_q0)
   se_full <- sqrt(mean((phi_full-mean(phi_full))^2)/n)
-  se_q0_naive <- sqrt(mean((phi_q0-mean(phi_q0))^2)/n)
   if (oracle) {
-    return(list(full=psi_full,se_full=se_full,q0=psi_q0,
-                se_q0_naive=se_q0_naive,plugin=psi_pl_mean,
+    return(list(full=psi_full,se_full=se_full,plugin=psi_pl_mean,
                 minG=min(minG),phi_full=phi_full,folds=folds))
   }
   ipcw_point <- semi_ipcw_crossfit(dat,w_ipcw)
@@ -669,25 +639,16 @@ semi_one_step <- function(dat,V=5,M_q=64,g_floor=1e-8,seed=123,
                            error=conditionMessage(e)))
   if (!is.null(ipcw_fit$psi) && abs(ipcw_fit$psi-ipcw_point)>1e-8)
     stop("IPCW point estimator and IF projection disagree")
-  list(full=psi_full,se_full=se_full,q0=psi_q0,
-       se_q0_naive=se_q0_naive,
+  list(full=psi_full,se_full=se_full,
        ipcw=ipcw_point,se_ipcw=ipcw_fit$se,
        ipcw_se_error=if(is.null(ipcw_fit$error)) NA_character_ else ipcw_fit$error,
        phi_ipcw=ipcw_fit$phi,
        plugin=psi_pl_mean,
-       minG=min(minG),phi_full=phi_full,phi_q0=phi_q0,
+       minG=min(minG),phi_full=phi_full,
        folds=folds,mu_method=mu_method)
 }
 
-## Legacy in-sample IPCW is available solely for historical comparison.
-## The manuscript's comparator uses semi_ipcw_crossfit instead.
-semi_ipcw_insample <- function(dat,g_floor=1e-8) {
-  models <- semi_fit_models(dat)
-  proj <- semi_make_projection(dat,models,attr(dat,"tau"),g_floor)
-  proj$psi
-}
-
-## Simulation summary keeps ALL valid point estimates, and separately
+## Simulation summary records estimation performance and failures.
 ## counts replications with a finite SE (N_SE).
 semi_summarize <- function(x,se=NULL,truth) {
   ok <- is.finite(x); N <- sum(ok)
@@ -718,14 +679,14 @@ run_semicomp_simulation <- function(scenario="moderate",B=SIM_B,
   c0 <- semi_calibrate_censoring(par)
   true_min_G <- semi_true_min_G(par,c0)
   if (scenario %in% c("stronger", "strongest") && true_min_G < 0.01)
-    stop("Revised DGP fails target true-G bound: ", true_min_G)
+    stop("DGP fails the prespecified true-G bound: ", true_min_G)
   if(verbose) cat("Semi-competing:",scenario,"n=",n,"B=",B,
                   "kappa=",RIDGE_KAPPA,"M_q=",M_q,
                   "truth=",signif(truth,7),"truth_MCSE=",
                   signif(truth_mcse,3),"c0=",signif(c0,5),
                   "min_true_G=",signif(true_min_G,5),"\n")
   out <- data.frame(replication=seq_len(B),full=NA_real_,
-    se_full=NA_real_,q0=NA_real_,se_q0=NA_real_,
+    se_full=NA_real_,
     ipcw=NA_real_,se_ipcw=NA_real_,plugin=NA_real_,
     oracle=NA_real_,se_oracle=NA_real_,
     censor_fraction=NA_real_,min_G=NA_real_,
@@ -746,7 +707,6 @@ run_semicomp_simulation <- function(scenario="moderate",B=SIM_B,
       if(verbose) cat("Replication",b,"failed:",out$error[b],"\n")
     } else {
       out$full[b] <- fit$full;out$se_full[b] <- fit$se_full
-      out$q0[b] <- fit$q0;out$se_q0[b] <- fit$se_q0_naive
       out$ipcw[b] <- fit$ipcw;out$se_ipcw[b] <- fit$se_ipcw
       out$plugin[b] <- fit$plugin;out$min_G[b] <- fit$minG
       out$ipcw_se_error[b] <- if(is.null(fit$ipcw_se_error) ||
@@ -766,7 +726,6 @@ run_semicomp_simulation <- function(scenario="moderate",B=SIM_B,
   }
   summary <- rbind(
     FULL_EIF=semi_summarize(out$full,out$se_full,truth),
-    Q0_DIAGNOSTIC=semi_summarize(out$q0,out$se_q0,truth),
     IPCW=semi_summarize(out$ipcw,out$se_ipcw,truth),
     PLUGIN=semi_summarize(out$plugin,NULL,truth))
   if(oracle) summary <- rbind(summary,
@@ -845,7 +804,7 @@ for(sc in RUN_SCENARIOS) {
       c(.5,.9,.95,.99,1),na.rm=TRUE))
   good_G <- res$replicates$min_G[is.finite(res$replicates$min_G)]
   cat("Min fitted G:",if(length(good_G)) min(good_G) else NA_real_,"\n")
-  prefix <- paste0("semicomp_ridge_DGP_REVISED_",sc,"_n",SIM_N,
+  prefix <- paste0("semicomp_ridge_",sc,"_n",SIM_N,
                    "_B",SIM_B,"_seed",SIM_SEED)
   semi_export(res,prefix)
 }

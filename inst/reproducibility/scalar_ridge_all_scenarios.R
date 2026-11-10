@@ -1,38 +1,15 @@
-# ========================================================================
-# SCALAR WIN-PROBABILITY SIMULATIONS: POOLED CENSORING RIDGE MODEL
-# Complete base-R implementation. No bootstrap.
-#
-# CHANGE relative to scalar_ridge_all_scenarios_archived.R:
-#   * event hazards remain ridge-regularized and arm-specific;
-#   * censoring hazard fitted by ONE ridge Poisson model with A + X,
-#     where treatment and X slopes are shared across the pooled sample;
-#   * IPCW score/Hessian correction uses the pooled 3-coefficient model.
-# All event/censoring fits are cross-fitted on the training folds only.
-#
-# All three scenarios share kappa=2; NO hazard/weight truncation.
-# DGP censoring has no treatment effect, but fitted model allows one.
-#
-# REVISED MAIN STRONGEST SCENARIO (Nov 2026):
-#   betaX=1.75 remains unchanged; gammaX is reduced from 1.25 to 0.80;
-#   target censoring fraction remains 0.40. This yields calibrated
-#   c0 about 0.16585549 and true min G about 0.01645 on X in [-2,2],
-#   t in [0,5]; the target win probability is unchanged (~0.543225981).
-#   Previous gammaX=1.25 scenario was a near-positivity stress test.
-#
-# All three scenarios and all estimators remain available in this ONE
-# submission-ready script. RUN_SCENARIOS defaults to 'strongest' ONLY
-# so that prior moderate/stronger experiments are not rerun.
-# To run all three: RUN_SCENARIOS <- c('moderate','stronger','strongest')
-#
-# Default n=300, B=1000. Use B=5000 for a more informative RE check.
-# SEED_STREAM_B=5000 preserves the old replication seed stream for B<=5000,
-# assuming unchanged RNG settings; strongest DGP itself has changed.
-# ========================================================================
-SIM_N           <- 800L   # total n, approximately 150 per arm
-SIM_B           <- 5000L  # change to 5000L for full comparison
+# Scalar right-censored outcomes: simulation and estimator comparison
+# -------------------------------------------------------------------
+# Design: randomized binary treatment, one baseline covariate, exponential event times, covariate-dependent right censoring, restriction at tau.
+# Estimators: cross-fitted one-step (FULL_EIF), normalized IPCW, plug-in, and an oracle-hazard benchmark. Ridge event hazards are arm-specific;
+# the ridge censoring hazard is pooled with treatment and covariate effects.
+# -------------------------------------------------------------------
+
+SIM_N           <- 200L   # participants per simulated dataset
+SIM_B           <- 5000L  # Monte Carlo replications per scenario
 SIM_V           <- 5L
 SIM_SEED        <- 2027L
-SEED_STREAM_B   <- 5000L  # same master seed stream as old B=5000 run
+SEED_STREAM_B   <- 5000L  # fixed stream length for reproducibility
 SIM_ORACLE      <- TRUE
 RIDGE_KAPPA     <- 2.0
 RUN_SCENARIOS <- c("moderate", "stronger", "strongest")
@@ -44,9 +21,9 @@ SCENARIOS <- list(
   stronger = list(tau=5,lambda0=.10,betaA=-.40,betaX=1.00,
                   piA=.50,gammaX=.80,target=.40),
   strongest = list(tau=5,lambda0=.10,betaA=-.40,betaX=1.75,
-                   piA=.50,gammaX=.80,target=.40)  # REVISED strongest
+                   piA=.50,gammaX=.80,target=.40)
 )
-MIN_RATE <- 1e-12   # numerical safeguard ONLY; not a substantive rate cap
+MIN_RATE <- 1e-12   
 
 rX <- function(n) qnorm(runif(n,pnorm(-2),pnorm(2)))
 rateT <- function(a,x,p) p$lambda0*exp(p$betaA*a+p$betaX*x)
@@ -110,9 +87,7 @@ generate_data <- function(n,p,c0) {
 # The penalized counting-process log-likelihood (up to constants):
 # ell(alpha,beta) = sum(event)*(alpha) + sum(event*X)*beta
 #                   - sum(s*exp(alpha+beta*X)) - kappa*beta^2/2.
-# For each beta, alpha is explicitly profiled out. The profile score
-# decreases strictly for kappa>0, so a single uniroot() is sufficient.
-# This avoids external packages and unstable two-dimensional fitting.
+# For each beta, alpha is explicitly profiled out. 
 fit_rate <- function(d,event_name) {
   event <- d[[event_name]]
   x <- d$X
@@ -146,8 +121,7 @@ fit_rate <- function(d,event_name) {
   list(alpha=alpha,beta=beta,pooled=NA_real_,fallback=FALSE)
 }
 
-# Unlike the previous scripts, we do not cap the fitted hazard at 0.5,
-# 1, 4, etc. The fixed ridge penalty stabilizes the coefficient estimate.
+# Fitted event hazards are not capped; the ridge penalty stabilizes the fit.
 predict_rate <- function(f,x,clipped=TRUE) {
   if(f$fallback) out <- rep(f$pooled,length(x)) else {
     eta <- f$alpha + f$beta*as.numeric(x)
@@ -163,7 +137,7 @@ predict_rate <- function(f,x,clipped=TRUE) {
 # The POOLED censoring hazard has log rate alpha + beta_A*A + beta_X*X.
 # Penalize BOTH slopes but not the intercept, with the same kappa=2.
 # Profile out alpha and maximize the strictly concave two-slope profile
-# log-likelihood by Newton's method with backtracking. No packages used.
+# log-likelihood by Newton's method with backtracking. 
 fit_censor_pooled <- function(train) {
   ev <- as.numeric(1L-train$R)
   E <- sum(ev)
@@ -309,14 +283,8 @@ compensator <- function(a,s,lt,lc,F,tau,mu) {
 
 # First-order direct SE of the normalized IPCW U-statistic.
 # For the POOLED censoring regression the nuisance score/Hessian are
-# three-dimensional (intercept, A, X). Because each fold's censoring fit
-# is trained on ALL non-validation subjects, its score correction is
-# distributed across ALL those subjects, not separately by arm.
+# three-dimensional (intercept, A, X). 
 #
-# Weight normalization and variation of BOTH empirical outcome laws enter
-# through the projected kernel h_i-psi. Fixed kappa produces O(1/n) bias;
-# this remains a first-order asymptotic variance approximation and is
-# evaluated by empirical coverage in the simulations.
 ipcw_direct_se <- function(d,fold,cfits,weights,h1,h0,psi,ix1,ix0) {
   n <- nrow(d); V <- max(fold)
   IF <- numeric(n); h <- numeric(n)
@@ -358,7 +326,7 @@ ipcw_direct_se <- function(d,fold,cfits,weights,h1,h0,psi,ix1,ix0) {
 
 estimate_once <- function(d,p,c0,fold,oracle=FALSE) {
   n <- nrow(d); V <- max(fold); tau <- p$tau
-  phi <- numeric(n); phi0 <- numeric(n)
+  phi <- numeric(n)
   plug <- numeric(V); ww <- numeric(n)
   G <- numeric(n); ess1 <- ess0 <- numeric(V)
   cfits <- vector("list",V); nfallback <- 0L
@@ -388,7 +356,6 @@ estimate_once <- function(d,p,c0,fold,oracle=FALSE) {
       aug <- qjump-compensator(a,s,lt,lc,F,tau,mu)
       base <- mu1+mu0-2*plug[v]
       phi[i] <- base+(ipart+aug)/pa
-      phi0[i] <- base+ipart/pa
       G[i] <- 1/invG
       if(d$R[i]==1L) ww[i] <- invG/pa
     }
@@ -397,8 +364,6 @@ estimate_once <- function(d,p,c0,fold,oracle=FALSE) {
   out <- list(
     full=plug_avg+mean(phi),
     se_full=sqrt(mean((phi-mean(phi))^2)/n),
-    q0=plug_avg+mean(phi0),
-    se_q0=sqrt(mean((phi0-mean(phi0))^2)/n),
     plugin=plug_avg,
     min_G=min(G),
     min_ess_treated=min(ess1),
@@ -459,7 +424,7 @@ run_simulation <- function(scenario,n=SIM_N,B=SIM_B,V=SIM_V,
                      "target censor=%.2f; min true G=%.6f\n"),
               scenario,n,B,truth,c0,p$target,g0))
   r <- data.frame(replication=seq_len(B),full=NA_real_,se_full=NA_real_,
-      q0=NA_real_,se_q0=NA_real_,ipcw=NA_real_,se_ipcw=NA_real_,
+      ipcw=NA_real_,se_ipcw=NA_real_,
       plugin=NA_real_,oracle=NA_real_,se_oracle=NA_real_,
       min_G=NA_real_,min_ess_treated=NA_real_,min_ess_control=NA_real_,
       fallback=NA_integer_,censor_fraction=NA_real_,
@@ -478,7 +443,6 @@ run_simulation <- function(scenario,n=SIM_N,B=SIM_B,V=SIM_V,
       r$error[b] <- conditionMessage(z)
     } else {
       r$full[b] <- z$full; r$se_full[b] <- z$se_full
-      r$q0[b] <- z$q0; r$se_q0[b] <- z$se_q0
       r$ipcw[b] <- z$ipcw; r$se_ipcw[b] <- z$se_ipcw
       r$plugin[b] <- z$plugin; r$min_G[b] <- z$min_G
       r$min_ess_treated[b] <- z$min_ess_treated
@@ -498,7 +462,6 @@ run_simulation <- function(scenario,n=SIM_N,B=SIM_B,V=SIM_V,
   }
   summary <- rbind(
     FULL_EIF=summarize_one(r$full,r$se_full,truth),
-    Q0_DIAGNOSTIC=summarize_one(r$q0,r$se_q0,truth),
     IPCW=summarize_one(r$ipcw,r$se_ipcw,truth),
     PLUGIN=summarize_one(r$plugin,rep(NA_real_,B),truth))
   if(oracle) summary <- rbind(summary,
@@ -524,7 +487,7 @@ sanity_check <- function() {
     stopifnot(true_min_G(pp,cc) >= MAIN_G_THRESHOLD,
               abs(censor_fraction(cc,pp)-pp$target) < 1e-8)
   }
-  # These reference numbers pertain to the REVISED strongest DGP.
+  # Reference values correspond to the configured strongest DGP.
   p_new <- SCENARIOS$strongest
   c_new <- calibrate_censor(p_new)
   stopifnot(abs(c_new-0.16585549) < 2e-6,
@@ -577,7 +540,7 @@ sanity_check <- function() {
 }
 
 # ========================================================================
-# RECONSTRUCT ANY REPLICATION with identical previous B=5000 seed stream.
+# RECONSTRUCT A REPLICATION under the configured seed stream.
 # For example (after setting RUN_MAIN=FALSE above and sourcing this file):
 #   z <- reproduce_replication("stronger",1798L,n=300L)
 #   z$estimate[c("full","se_full","ipcw","min_G")]
@@ -600,10 +563,9 @@ reproduce_replication <- function(scenario="stronger",b=1798L,
 }
 
 # ========================================================================
-# MAIN RUN: all 3 scenarios AVAILABLE, strongest ONLY by default.
-# For submission, set RUN_SCENARIOS to all three when desired.
-# For n=600 change SIM_N; for B=5000 change SIM_B.
-# If running the script in an interactive session, results is populated.
+# MAIN RUN: scenarios selected by RUN_SCENARIOS.
+# Default settings run all three scenarios.
+# Change SIM_N or SIM_B to reproduce other sample sizes or replications.
 # ========================================================================
 sanity_check()
 if(RUN_MAIN) {
@@ -622,7 +584,7 @@ if(RUN_MAIN) {
     cat("Min TRUE G on covariate/time support:",res$true_min_G,"\n")
     cat("Min fitted G:",min(res$replicates$min_G,na.rm=TRUE),"\n")
     cat("Hazard fallbacks:",sum(res$replicates$fallback,na.rm=TRUE),"\n")
-    prefix <- paste0("scalar_pooled_ridge_revised_",sc,"_n",SIM_N,"_B",SIM_B,
+    prefix <- paste0("scalar_pooled_ridge_",sc,"_n",SIM_N,"_B",SIM_B,
                      "_seed",SIM_SEED,"_kappa",
                      gsub("\\.","p",as.character(RIDGE_KAPPA)))
     write.csv(res$summary,paste0(prefix,"_summary.csv"))
@@ -635,6 +597,6 @@ if(RUN_MAIN) {
                row.names=NULL,check.names=FALSE)
   }))
   write.csv(combined,
-      paste0("scalar_pooled_ridge_revised_n",SIM_N,"_B",SIM_B,
+      paste0("scalar_pooled_ridge_n",SIM_N,"_B",SIM_B,
              "_seed",SIM_SEED,"_combined_summary.csv"),row.names=FALSE)
 }
