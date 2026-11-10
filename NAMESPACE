@@ -1,0 +1,4 @@
+import(stats)
+export(winprob_scalar)
+export(winprob_semicomp)
+S3method(print,winoddsEIF)

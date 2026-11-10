@@ -1,0 +1,20 @@
+Package: winoddsEIF
+Type: Package
+Title: Cross-Fitted Semiparametric Estimation of Marginal Win Odds
+Version: 0.1.0
+Authors@R: person("Zhiguo", "Li", email = "zhiguo.li@duke.edu", role = c("aut", "cre"))
+Description: Implements cross-fitted one-step estimators of marginal win
+    probability and win odds under right censoring for scalar survival
+    outcomes and prioritized semi-competing risks. Includes ridge-regularized
+    event and censoring hazard fitting, influence-function standard errors,
+    and an inverse-probability-of-censoring weighted comparator. Bundles
+    reproducible standalone analyses of public tamoxifen trial data using
+    penalized spline and exponential working hazards, and numerical
+    regression comparisons with original simulation code. This is an
+    initial research implementation intended for validation before release.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports: stats
+NeedsCompilation: no
+Suggests: collett, splines

@@ -1,0 +1,2 @@
+RIDGE_KAPPA <- 2.0
+MIN_RATE <- 1e-12
