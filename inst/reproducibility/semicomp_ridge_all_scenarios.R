@@ -7,9 +7,9 @@
 # Outputs are saved to getwd(). 
 # --------------------------------------------------------------------
 
-SIM_N <- 200L
+SIM_N <- 200L             # total sample size
 SIM_B <- 5000L            # Monte Carlo replications PER scenario
-SIM_V <- 5L
+SIM_V <- 5L               # number of folds
 SIM_SEED <- 2031L
 RIDGE_KAPPA <- 2.0
 SIM_M_Q <- 256L            # Conditional-projection integration grid (16 x 16)

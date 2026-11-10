@@ -5,9 +5,9 @@
 # the ridge censoring hazard is pooled with treatment and covariate effects.
 # -------------------------------------------------------------------
 
-SIM_N           <- 200L   # participants per simulated dataset
+SIM_N           <- 200L   # number of subjects 
 SIM_B           <- 5000L  # Monte Carlo replications per scenario
-SIM_V           <- 5L
+SIM_V           <- 5L     # number of folds
 SIM_SEED        <- 2027L
 SEED_STREAM_B   <- 5000L  # fixed stream length for reproducibility
 SIM_ORACLE      <- TRUE
