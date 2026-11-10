@@ -4,9 +4,6 @@
 # Estimators: cross-fitted one-step (FULL_EIF), normalized IPCW, plug-in, and an oracle-hazard benchmark. Ridge-regularized piecewise-exponential
 # nuisance models use fixed kappa=2; the intercept is unpenalized. Reference win probability is estimated by an independent Monte Carlo run;
 # the reported reference Monte Carlo SE should be considered in bias checks.
-#
-# Default n=800, B=5000 per scenario, M_q=256. 
-
 # Outputs are saved to getwd(). 
 # --------------------------------------------------------------------
 
