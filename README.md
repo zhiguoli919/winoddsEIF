@@ -1,73 +1,86 @@
-# winoddsEIF (research prototype)
+# winoddsEIF
 
-An initial R package adapted from the user's **scalar** and **semi-competing-risk** simulation programs for the manuscript *Semiparametric Inference for Marginal Win Odds with Censored Time-to-Event Outcomes*.
+**Cross-fitted estimation of marginal win probability and win odds with censored time-to-event outcomes**
 
-**Status:** Development version `0.1.0`, unchanged until finalization.
-RStudio installation and functional examples succeeded. The scalar
-and semi-competing-risk estimators passed numerical equivalence
-comparisons with their original simulations in two scenarios each.
-The *separate tamoxifen spline analysis* and formal `R CMD check` have
-not yet been validated; do not release until those checks are complete.
+`winoddsEIF` is a research R package accompanying the manuscript *Semiparametric Inference for Marginal Win Odds with Censored Time-to-Event Outcomes*. It implements cross-fitted one-step estimators for (i) scalar right-censored survival outcomes and (ii) prioritized semi-competing-risk outcomes. It also provides the original simulation programs, numerical comparison tests, and the separate penalized-spline analysis of a breast cancer trial.
 
-## Install locally
+**Development status:** Version `0.1.0` (version number held fixed during development). The package has been installed and tested on Windows using R 4.5.2. Its two exported estimators reproduced results from the corresponding original simulation implementations in two test scenarios each, and the packaged tamoxifen penalized-spline analysis reproduced the earlier 5-year results. `R CMD check --no-manual` completed with **Status: OK**, including the automated numerical regression tests. Full Monte Carlo reproduction and `R CMD check --as-cran` have not yet been completed.
 
-From the parent directory containing `winoddsEIF/`:
+## Installation
 
-```r
-install.packages("winoddsEIF", repos = NULL, type = "source")
-library(winoddsEIF)
+From a terminal in the parent directory of the package source folder:
+
+```sh
+R CMD INSTALL winoddsEIF
 ```
 
-Or use the accompanying `.tar.gz` source archive (downloaded separately):
+Alternatively, install the source archive from R (using the archive's actual path):
 
 ```r
 install.packages("winoddsEIF_0.1.0.tar.gz", repos = NULL, type = "source")
+library(winoddsEIF)
 ```
 
-## Scalar survival outcomes
+The GitHub repository is private during development. The package is not currently distributed through CRAN.
+
+## Scalar right-censored survival outcomes
+
+The input data frame has one row per participant and columns `A` (0 = control, 1 = treatment), `X` (one numeric baseline covariate), `time` (observed event/censoring time, administratively restricted at `tau`), and `status` (1 if the event occurred and was observed by `tau`, 0 otherwise).
 
 ```r
+library(winoddsEIF)
+
 set.seed(3)
 n <- 240
-A <- rbinom(n, 1, .5)
+tau <- 5
+A <- rbinom(n, 1, 0.5)
 X <- runif(n, -1, 1)
-T <- rexp(n, .1*exp(-.4*A + .7*X))
-C <- rexp(n, .09*exp(.5*X))
-d <- data.frame(A, X, time=pmin(T,C,5),
-                status=as.integer(T <= C & T <= 5))
-fit <- winprob_scalar(d, tau=5, treatment_prob=.5, folds=5, seed=123)
+T <- rexp(n, rate = 0.10 * exp(-0.4 * A + 0.7 * X))
+C <- rexp(n, rate = 0.09 * exp(0.5 * X))
+
+d <- data.frame(
+  A = A,
+  X = X,
+  time = pmin(T, C, tau),
+  status = as.integer(T <= C & T <= tau)
+)
+
+fit <- winprob_scalar(d, tau = tau, treatment_prob = 0.5,
+                      folds = 5, seed = 123)
 print(fit)
 fit$diagnostics
 ```
 
-`status=1` indicates that the event was observed at/before the analysis horizon; `status=0` indicates that the event was not observed. A subject with `status=0` but observed follow-up through `tau` contributes a fully revealed outcome at `tau`.
+`status = 0` includes both censoring before `tau` and event-free follow-up through `tau`. The latter yields a fully observed restricted outcome at the horizon.
 
 ## Prioritized semi-competing risks
 
-Provide one row per participant with six columns:
+Here the **terminal event has higher priority** than the nonterminal event, with a common restriction horizon `tau`.
 
 | Column | Meaning |
 |---|---|
 | `A` | 0 = control, 1 = treatment |
-| `X` | Numeric baseline covariate (one covariate supported for now) |
-| `time1` | min(terminal event, censoring, follow-up end) |
-| `status1` | 1 when terminal event observed, 0 otherwise |
-| `time2` | min(nonterminal event, terminal event, censoring, follow-up end) |
-| `status2` | 1 when nonterminal event observed **before** terminal event, 0 otherwise |
+| `X` | One numeric baseline covariate |
+| `time1` | Minimum of terminal-event time, censoring time, and follow-up end |
+| `status1` | 1 if a terminal event was observed, 0 otherwise |
+| `time2` | Minimum of nonterminal-event time, terminal-event time, censoring time, and follow-up end |
+| `status2` | 1 if a nonterminal event was observed before the terminal event, 0 otherwise |
 
-**Reproducible example** (synthetic trial data; `m_q=16` for a short demo,
-use `m_q=256` to match the numerical integration setting in the simulations):
+A complete synthetic-data example:
 
 ```r
+library(winoddsEIF)
+
 set.seed(2027)
 n <- 240L
 tau <- 5
 A <- rbinom(n, 1, 0.5)
 X <- runif(n, -1, 1)
-# Terminal event has higher priority than nonterminal event.
-T1 <- rexp(n, rate = 0.10 * exp(-0.35*A + 0.7*X))
-T2 <- rexp(n, rate = 0.20 * exp(-0.30*A + 0.4*X))
-C  <- rexp(n, rate = 0.08 * exp(0.2*X))
+
+T1 <- rexp(n, rate = 0.10 * exp(-0.35 * A + 0.7 * X))
+T2 <- rexp(n, rate = 0.20 * exp(-0.30 * A + 0.4 * X))
+C  <- rexp(n, rate = 0.08 * exp(0.2 * X))
+
 d <- data.frame(
   A = A, X = X,
   time1 = pmin(T1, C, tau),
@@ -75,78 +88,93 @@ d <- data.frame(
   time2 = pmin(T2, T1, C, tau),
   status2 = as.integer(T2 < T1 & T2 <= C & T2 <= tau)
 )
+
 fit <- winprob_semicomp(d, tau = tau, treatment_prob = 0.5,
                         folds = 5, seed = 2027, m_q = 16)
 print(fit)
-fit$diagnostics
 fit$psi
 fit$win_odds
 fit$ci_win_odds
+fit$diagnostics
 ```
 
-In this version, the primary (terminal) event has priority over the secondary (nonterminal) event, and the same fixed horizon `tau` is used for both. The observed follow-up columns can extend beyond `tau` and are administratively truncated by the function.
+The example uses `m_q = 16` to reduce computation time. The original semi-competing-risk simulation code uses `m_q = 256`. The function restricts outcomes to `tau` even if input follow-up extends beyond it.
 
-## Research scope and limitations
+## Reproduce the tamoxifen real-data analysis
 
-- Exactly **one numeric baseline covariate**, binary treatment, **constant known treatment assignment probability**. This is a narrower API than the paper's general semiparametric model.
-- Fixed ridge penalty `kappa=2` to match the supplied simulations. No user-selectable tuning yet.
-- Model-based predictable residual projections, as in the supplied scripts. Claims of nonparametric efficiency require the assumptions and nuisance-rate conditions in the manuscript; they do not follow merely from use of this package.
-- `se_ipcw` is a **first-order model-based approximation**; consult the paper's numerical checks. A failure to compute it is reported in diagnostics.
-- No bootstrap. No separate dataset is bundled.
-- No q=0 method is exposed publicly; the original unmodified simulation scripts are included solely as archival reproduction material.
+The package includes two standalone programs under `inst/analysis/`:
 
-## Reproduce the manuscript's simulations
+- **Main analysis:** `tamoxifen_penalized_spline_fullq.R`, with penalized cubic B-spline baseline log-hazards, five-fold cross-fitting, and a full estimated censoring augmentation.
+- **Supporting analysis:** `tamoxifen_exponential_fullq.R`, with exponential working hazards.
 
-The exact supplied scripts are preserved under `inst/reproducibility/`:
+These scripts use the publicly available `tamoxifen` dataset in the `collett` package. The main spline analysis uses age, log tumor size, and hormone-receptor status as baseline regressors and analyzes 4- and 5-year horizons. It is a **separate, reproducible analysis implementation**, not a call to the one-covariate exported `winprob_semicomp()` function.
+
+To run the main analysis:
+
+```r
+install.packages("collett")  # Only if it is not already installed
+library(winoddsEIF)
+
+script <- system.file(
+  "analysis", "tamoxifen_penalized_spline_fullq.R",
+  package = "winoddsEIF", mustWork = TRUE
+)
+e <- new.env(parent = globalenv())
+sys.source(script, envir = e)
+print(e$spline_results$table)
+
+# Record the software environment for reproducibility:
+sessionInfo()
+packageVersion("collett")
+```
+
+The 5-year output previously checked against the manuscript analysis was:
+
+| Estimator | Win probability | SE | Win odds | 95% CI for win odds |
+|---|---:|---:|---:|---|
+| IPCW (spline censoring) | 0.536470 | 0.0153624 | 1.15736 | (1.02537, 1.30633) |
+| One-step (spline full q) | 0.529994 | 0.0132644 | 1.12763 | (1.01588, 1.25168) |
+
+**Note:** Sourcing either real-data script executes the analysis and writes output files to the current working directory. Neither analysis is run automatically by installing or loading the package. See `inst/analysis/README.md` for further details.
+
+## Simulation code and numerical validation
+
+The original simulation programs are provided under `inst/reproducibility/`:
 
 - `scalar_ridge_all_scenarios.R`
 - `semicomp_ridge_all_scenarios.R`
 
-**Warning:** The scripts contain top-level commands that **automatically execute many replications** and write CSV/RDS results when sourced. Review their `SIM_N`, `SIM_B`, `RUN_SCENARIOS`, and (for scalar) `RUN_MAIN` settings before running. They are not invoked by package installation or function calls.
+**Caution:** These standalone simulation programs contain top-level commands that can run large simulation studies and write CSV/RDS results when sourced. Review their simulation settings before running them. They are **not** executed by package installation, package examples, or the regression tests.
 
-## Reproducing the tamoxifen real-data analysis
+The numerical comparison scripts are stored under `inst/validation/`:
 
-The package bundles **both** author-supplied scripts in `inst/analysis/`:
+- `validate_winoddsEIF_scalar.R`
+- `validate_winoddsEIF_semicomp.R`
 
-- **Main**: `tamoxifen_penalized_spline_fullq.R`, with penalized cubic
-  B-spline baseline log-hazards, five-fold cross-fitting, and full q.
-- **Supporting**: `tamoxifen_exponential_fullq.R`, with exponential
-  working hazards.
+The automated test file `tests/regression.R` runs both comparisons during `R CMD check`. In the moderate and strongest scenarios, all nine scalar quantities and all six semi-competing-risk quantities agreed with the original implementations within the specified tolerance of `1e-8`. The package also includes `tests/smoke.R`.
 
-The main spline script is **not** the same estimator implementation as
-the simple one-covariate public `winprob_semicomp()` simulation interface:
-it includes age, log tumor size, and hormone receptor status and spline
-baseline hazards. It is packaged as reproducible standalone analysis
-code, not presented as a new general-purpose public estimator.
+From the parent directory of the package source:
 
-To reproduce the 4- and 5-year spline results:
-
-```r
-install.packages("collett")  # one time, if not installed
-library(winoddsEIF)
-f <- system.file("analysis", "tamoxifen_penalized_spline_fullq.R",
-                 package = "winoddsEIF", mustWork = TRUE)
-e <- new.env(parent = globalenv())
-sys.source(f, envir = e)
-print(e$spline_results$table)
+```sh
+R CMD build winoddsEIF
+R CMD check --no-manual winoddsEIF_0.1.0.tar.gz
 ```
 
-**Warning:** sourcing either standalone script *executes* its analysis
-and creates CSV/RDS files in `getwd()`. Neither runs automatically on
-package installation or when calling `library(winoddsEIF)`. See
-`inst/analysis/README.md` for usage and methodological distinctions.
+The latest completed check returned **Status: OK**, including `regression.R` and `smoke.R`. This verifies the package's behavior in the tested settings; it does not independently establish the statistical theory or reproduce every result from the full Monte Carlo studies.
 
-Both successful numerical equivalence scripts are retained under
-`inst/validation/`.
+## Scope and limitations
 
-## Validation checklist before GitHub release or journal submission
+- The two exported estimators support **one numeric baseline covariate**, binary treatment, and a **known constant randomization probability**. This is a narrower interface than the manuscript's general semiparametric framework.
+- The supplied nuisance models use ridge-regularized hazard fitting with fixed penalty `kappa = 2` to reproduce the simulation implementations; user-selectable tuning is not yet available.
+- The predictable residual projections are model-based. Statistical efficiency and valid one-step inference depend on the assumptions and nuisance-rate conditions discussed in the manuscript.
+- The IPCW standard error (`se_ipcw`) is a first-order model-based approximation; failures to compute it are reported in diagnostics.
+- The exported estimator functions do not implement a bootstrap. The `collett` data are not redistributed with this package.
+- Archived simulation scripts are retained for reproducibility; diagnostic variants in those scripts are not additional publicly exported estimators.
 
-1. Run `R CMD build winoddsEIF` and `R CMD check --as-cran winoddsEIF_0.1.0.tar.gz` on a machine with R installed.
-2. Run `tests/smoke.R` and compare the one-step estimates against the original programs using identical generated data and folds.
-3. Run the scalar and semi-competing replication studies with their published configurations, checking all reported tables, numerical failure counts, and random seeds.
-4. Run the included **tamoxifen spline analysis** and compare its numeric results with the manuscript; record the `collett` version and `sessionInfo()`.
-5. Add license review, a release tag, session information, and a DOI via Zenodo when ready.
+## Before public release
 
-## Acknowledgment of provenance
+The initial Windows installation, numerical comparisons, tamoxifen spline reproduction, and `R CMD check --no-manual` are complete. Remaining release tasks include reproducing the full simulation tables as needed, running `R CMD check --as-cran`, checking the license and documentation, and recording the software environment. A release tag and archival DOI can be added when a public release is ready.
 
-The internal numerical functions are adapted from the two user-supplied simulation scripts without claiming new independent validation of their numerical implementation.
+## Implementation provenance
+
+The numerical implementations were adapted from the author's original scalar and semi-competing-risk simulation programs. Comparisons with those programs test fidelity of the package adaptation; they are not independent theoretical validation.
